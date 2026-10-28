@@ -1,0 +1,6 @@
+{
+  "name": "Rocketiee AI",
+  "description": "An innovative Indian AI assistant created by Devansh. Built with an Indian Vision — Think Bigger. Learn Faster. Explore Further.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,206 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Reusable Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    // Entity Blueprint Validators (Pillar 2: The "Anti-Update-Gap")
+    function isValidUserPublicProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'preferredLanguage', 'theme', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'preferredLanguage', 'theme', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.preferredLanguage is string && data.preferredLanguage.size() <= 20
+        && (data.preferredLanguage == 'auto' || data.preferredLanguage == 'english' || data.preferredLanguage == 'hindi' || data.preferredLanguage == 'hinglish')
+        && data.theme is string && data.theme.size() <= 10
+        && (data.theme == 'light' || data.theme == 'dark')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidConversation(data, conversationId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'lastMessagePreview', 'messageCount', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'lastMessagePreview', 'messageCount', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.id == conversationId
+        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.lastMessagePreview is string && data.lastMessagePreview.size() >= 0 && data.lastMessagePreview.size() <= 300
+        && data.messageCount is int && data.messageCount >= 0 && data.messageCount <= 10000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatMessage(data, conversationId, messageId) {
+      return data.keys().hasAll(['id', 'conversationId', 'userId', 'role', 'content', 'feedback', 'attachmentName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'conversationId', 'userId', 'role', 'content', 'feedback', 'attachmentName', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.id == messageId
+        && data.conversationId is string && data.conversationId.size() >= 1 && data.conversationId.size() <= 128 && data.conversationId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.conversationId == conversationId
+        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId == request.auth.uid
+        && data.role is string && data.role.size() <= 16
+        && (data.role == 'user' || data.role == 'assistant')
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 32000
+        && data.feedback is string && data.feedback.size() <= 10
+        && (data.feedback == 'none' || data.feedback == 'up' || data.feedback == 'down')
+        && data.attachmentName is string && data.attachmentName.size() >= 0 && data.attachmentName.size() <= 200
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Collection 1: Split User Public Profile
+    match /users/{userId}/public/{docId} {
+      allow get: if isOwner(userId) && isValidId(userId) && isValidId(docId);
+      allow create: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidId(docId)
+        && isValidUserPublicProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidId(docId)
+        && isValidUserPublicProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'preferredLanguage', 'theme', 'updatedAt']);
+      allow delete: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(docId);
+    }
+
+    // Collection 2: Split User Private Info (PII Isolation)
+    match /users/{userId}/private/{docId} {
+      allow get: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(docId);
+      allow create: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidId(docId)
+        && isValidUserPrivateInfo(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidId(docId)
+        && isValidUserPrivateInfo(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+      allow delete: if isVerifiedOwner(userId) && isValidId(userId) && isValidId(docId);
+    }
+
+    // Collection 3: Conversations
+    match /conversations/{conversationId} {
+      allow get: if isSignedIn() && isValidId(conversationId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isVerifiedUser()
+        && isValidId(conversationId)
+        && isValidConversation(incoming(), conversationId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(conversationId)
+        && isValidConversation(incoming(), conversationId)
+        && existing().userId == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Update Conversation Metadata on New Message
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'lastMessagePreview', 'messageCount', 'updatedAt']) ||
+          // Action 2: Rename Conversation Title
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'updatedAt'])
+        );
+      allow delete: if isVerifiedUser() && isValidId(conversationId) && existing().userId == request.auth.uid;
+
+      // Collection 4: Conversation Messages Subcollection (Pillar 1: Master Gate Relational Sync)
+      match /messages/{messageId} {
+        allow get: if isSignedIn()
+          && isValidId(conversationId)
+          && isValidId(messageId)
+          && existing().userId == request.auth.uid
+          && get(/databases/$(database)/documents/conversations/$(conversationId)).data.userId == request.auth.uid;
+        allow list: if isSignedIn() && existing().userId == request.auth.uid;
+        allow create: if isVerifiedUser()
+          && isValidId(conversationId)
+          && isValidId(messageId)
+          && isValidChatMessage(incoming(), conversationId, messageId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/conversations/$(conversationId))
+          && get(/databases/$(database)/documents/conversations/$(conversationId)).data.userId == request.auth.uid;
+        allow update: if isVerifiedUser()
+          && isValidId(conversationId)
+          && isValidId(messageId)
+          && isValidChatMessage(incoming(), conversationId, messageId)
+          && existing().userId == request.auth.uid
+          && incoming().id == existing().id
+          && incoming().conversationId == existing().conversationId
+          && incoming().userId == existing().userId
+          && incoming().role == existing().role
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Action 1: Submit Response Feedback
+            incoming().diff(existing()).affectedKeys().hasOnly(['feedback', 'updatedAt']) ||
+            // Action 2: Regenerate / Update Assistant Content
+            (existing().role == 'assistant' && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'feedback', 'updatedAt']))
+          )
+          && get(/databases/$(database)/documents/conversations/$(conversationId)).data.userId == request.auth.uid;
+        allow delete: if isVerifiedUser()
+          && isValidId(conversationId)
+          && isValidId(messageId)
+          && existing().userId == request.auth.uid
+          && get(/databases/$(database)/documents/conversations/$(conversationId)).data.userId == request.auth.uid;
+      }
+    }
+  }
+}

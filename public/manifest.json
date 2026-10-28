@@ -1,0 +1,18 @@
+{
+  "name": "Rocketiee AI — Built with an Indian Vision",
+  "short_name": "Rocketiee AI",
+  "description": "Smart, friendly, innovative Indian AI assistant created by Devansh. Let's Explore Together!",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FACC15",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/rocketiee-icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
